@@ -1,0 +1,86 @@
+services:
+  # 1. BASE DE DONNÉES NoSQL (MongoDB)
+  db_mongo:
+    build: 
+      context: ./mongo
+      dockerfile: Dockerfile
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DB}
+    volumes:
+      - mongo_data:/data/db
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --quiet --eval \"if (db.getSiblingDB('blog_db').posts.countDocuments() !== 5) quit(1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. BASE DE DONNÉES SQL (MySQL)
+  db_mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: on-failure
+    healthcheck:
+      # Healthcheck Métier : Vérifie s'il y a le chiffre 4 (pour 4 utilisateurs) dans le retour de la requête
+      test: ["CMD-SHELL", "mysql -u$$MYSQL_USER -p$$MYSQL_PASSWORD $$MYSQL_DATABASE -e 'SELECT COUNT(*) FROM utilisateurs;' | grep -w 4 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. L'APPLICATION (FastAPI)
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: on-failure
+    depends_on:
+      db_mongo:
+        condition: service_healthy
+      db_mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 4. INTERFACES D'ADMINISTRATION
+  admin_mongo:
+    image: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@db_mongo:27017/
+    restart: on-failure
+    depends_on:
+      db_mongo:
+        condition: service_healthy
+
+  admin_mysql:
+    image: adminer
+    ports:
+      - "8082:8080"
+    restart: on-failure
+    depends_on:
+      db_mysql:
+        condition: service_healthy
+
+# Déclaration des volumes persistants
+volumes:
+  mongo_data:
+  mysql_data:
