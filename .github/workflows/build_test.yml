@@ -22,3 +22,20 @@ jobs:
       with:
         username: ${{secrets.DOCKERHUB_USERNAME}}
         password: ${{secrets.DOCKERHUB_TOKEN}}
+
+    - name: Docker Scout Scan
+      uses: docker/scout-action@v1
+      with:
+        command: cves, recommendations
+        image: my-app-python:1.0.0
+        file: ./api/Dockerfile
+        only-severities: critical,high
+        exit-code: true
+    - name: Docker Scout Scan
+      uses: docker/scout-action@v1
+      with:
+        command: cves, recommendations
+        image: my-app-mongo:1.0.0
+        file: ./mongo/Dockerfile
+        only-severities: critical,high
+        exit-code: true
